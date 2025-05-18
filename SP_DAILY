@@ -1,0 +1,352 @@
+Use ADMIN
+go
+
+
+Create or ALTER PROC [dbo].[sp_Daily]
+(@x VARCHAR (100), @cpuTime INT = 1500, @databasename VARCHAR (50) = 'STACKOVERFLOW2010', @procname NVARCHAR (250) = NULL,
+@planId INT = NULL, @queryId INT = NULL, @Blocking BIT = 0, @blitzcache BIT = 0, @text NVARCHAR (MAX) = NULL,
+@tablename NVARCHAR (50) = NULL, @hint NVARCHAR (250) = NULL, @removeHint BIT = 0, @both int = 0
+)
+AS
+-- EXEC ADMIN..sp_Daily  HELP 
+DECLARE @SQL NVARCHAR (MAX)
+IF @x = 'help'
+BEGIN
+ PRINT 
+ '
+ @x represents parameter FOR SEARCH criteria.
+ Includes : @x = ''CPU'' OR ''recompile'' OR ''blocking'' OR ''helptext'' OR ''blocking''
+ OR ''procstocolfollowup'' OR ''indexusage'' OR ''text'' OR ''planid'' OR ''queryid''
+ OR ''tablename'' OR ''QueryStoreRecommendation'' ;
+
+ Other Parameters:
+ @databasename defaults TO ''escreen'', @procname defaults to NULL, planid defaults to NULL,
+ queryid defaults to NULL, @locking defaults to 0, @liteHitCache = 0 (if set = 1 for blit tool), else it will use quicklestore),
+ @text defaults to NULL, @removeHint defaults to 0, @both = 0.
+
+ Sample Execution:
+
+ EXEC sp_Daily @x = CPU ,@cpuTime = 1500, @both = 0 ; -- EXEC sp_Daily = blocking -- CHECK CPU, blocking @both = 0 for both, 1 for first one 2 for second
+ EXEC sp_Daily @x = recompile ,@procname = ''proc_insert_textbox_Objects''
+ EXEC sp_Daily helptext, @procname = ''uspGetBillOfMaterials'' --, @DATABASENAME = ''ADVENTUREWORKS2022''
+ EXEC sp_Daily 4, @planid = 5 -- Remove PlanID;  EXEC sp_Daily 4, @queryid = 16  -- Remove QueryID ; EXEC sp_Daily unforceplanid,  @queryid = 16 --Unforce Planid
+ EXEC sp_Daily 5, @procname = ''sp_GetPostsByTag'', @blitzcache = 1
+ EXEC sp_Daily 51, @text = ''%WHERE Tags LIKE%'' --Get planid based on text specially for dynamic stored procs 
+ EXEC sp_Daily 7 , @tablename = ''posts'' --Index Usage per table
+ EXEC sp_Daily 8 , @queryid = 19, @hint = ''LOOP JOIN'', @procname = ''sp_GetPostsByUser'' , @REMOVEHINT = 0 -- WHEN 1, IT REMOVES HINT FROM QS AND TRACKING TABLE WHEN 0 ADDS IN BOTH 
+ EXEC sp_Daily 91 ,@queryid = 19 --GET PROC NAME BASED ON QUERYID
+ EXEC sp_Daily 10 , @procname = ''sp_GetPostsByUser'' --CHECK PERMISSIONS ON STORED PROC
+ '
+END;
+
+IF (@x = '' OR @x = 'CPU') AND @Blocking = 0
+BEGIN
+CREATE TABLE #temptable ([session_id] SMALLINT, [status] NVARCHAR(30), [CPU_time] INT, [LogicalReads] BIGINT, [reads] BIGINT, [writes] BIGINT, [statement] NVARCHAR(MAX),
+[GrantMemory] INT, [buffer] NVARCHAR(MAX), [login_name] NVARCHAR(128), [query_plan] XML, [sql] NVARCHAR(MAX), [wait_type] NVARCHAR(60), [wait_time] INT, [waittype] NVARCHAR(60),
+[login_time] DATETIME, [host_name] NVARCHAR(128))
+
+IF @both = 1 --only 21
+BEGIN
+ EXEC admin..sp_who3 21
+END
+
+IF @both = 2
+BEGIN
+ --WAITFOR DELAY '00:00:00.300'
+ INSERT INTO #temptable ([session_id], [status], [cpu_time], [LogicalReads], [reads], [writes], [statement], [GrantMemory], [buffer], [login_name], [query_plan], [sql], [wait_type], [wait_time], 
+ [waittype], [login_time], [host_name])
+ EXEC admin..sp_who3 21 --high cpu
+
+ SELECT 
+ [session_id], [status], [cpu_time], [LogicalReads], [statement], [buffer], [login_name], [query_plan], [sql]
+ FROM #temptable
+ WHERE [cpu_time] >= @cpuTime ORDER BY cpu_time DESC
+END
+
+IF @both = 0
+BEGIN
+ EXEC admin..sp_who3 21
+
+ WAITFOR DELAY '00:00:00.200'
+ INSERT INTO #temptable ([session_id], [status], [cpu_time], [LogicalReads], [reads], [writes], [statement], [GrantMemory], [buffer], [login_name], [query_plan], [sql], [wait_type], [wait_time], 
+ [waittype], [login_time], [host_name])
+ EXEC admin..sp_who3 21 --high cpu
+
+ SELECT 
+ [session_id], [status], [cpu_time], [LogicalReads], [statement], [buffer], [login_name], [query_plan], [sql]
+ FROM #temptable
+ WHERE [cpu_time] >= @cpuTime ORDER BY cpu_time DESC
+END
+END
+
+IF (@x = '1' OR @x = 'CPU') AND @Blocking = 1
+BEGIN
+ EXEC admin..sp_who3 5
+END
+  
+
+IF (@x = '2' OR @x = 'recompile')
+BEGIN
+ IF @procname IS NULL BEGIN PRINT 'Please supply the stored proc or function name' END
+ SET @sql = 'use ' + @databasename + '
+ EXEC sp_recompile ''' + @procname + ''''
+ EXEC sp_executesql @SQL
+END
+
+IF  @x = '3' OR @x = 'helptext' 
+BEGIN
+ IF @procname IS NULL BEGIN PRINT 'Please supply the stored proc or function name' END
+ SET @sql = 'USE ' + @databasename + '
+ EXEC sp_helptext ' + @procname
+ PRINT @sql
+ EXEC sp_executesql @sql
+END
+
+IF (@x = '31' OR @x = 'profilerdata')
+BEGIN
+ IF @procname IS NULL BEGIN
+ -- PRINT a message (Warning NVARCHAR(100))
+ cREATE TABLE #TMP (WARNING NVARCHAR(100))
+ INSERT INTO #tmp VALUES ('Please supply the stored proc or function name!')
+ SELECT * FROM #tmp
+ END
+ ELSE
+ BEGIN
+ SELECT TOP 500 * FROM 
+ admin.dbo.trace_getparametervalues
+ WHERE textdata LIKE '%' + @procname + '%'
+ ORDER BY cpu DESC
+ END
+END
+
+IF (@x = '4' OR @x = 'removeplan')
+BEGIN
+ IF @planId IS NULL AND @queryId IS NULL 
+ BEGIN 
+ PRINT 'Please supply the Query_ID or Plan_ID!' 
+ END
+ IF @planId IS NOT NULL
+ BEGIN
+ SET @sql = 'USE ' + @databasename + ';
+ EXEC sp_query_store_remove_plan ' + CONVERT(VARCHAR, @planId);
+ --PRINT @sql
+ EXEC sp_executesql @sql
+PRINT 'If the PlanId was removed, the operation was successful. Otherwise, check the error message above.';
+ 
+ END
+
+ IF @queryId IS NOT NULL
+ BEGIN
+ SET @sql = 'USE ' + @databasename + ';
+ EXEC sp_query_store_remove_query @query_id = ' + CONVERT(VARCHAR, @queryId)
+ EXEC sp_executesql @sql
+ PRINT 'If the QueryId was removed, the operation was successful. Otherwise, check the error message above.';
+
+ --PRINT @sql
+ END
+END
+If @x = '41' or @x ='unforceplanid'
+Begin
+-- Construct the dynamic SQL
+DECLARE @plid BIGINT;
+SET @sql = '
+DECLARE @plid BIGINT, @query_id BIGINT = ' + CONVERT(VARCHAR, @queryid) + ';
+Set NOCOUNT ON 
+SELECT @plid = qs.plan_id
+FROM sys.query_store_plan AS qs
+WHERE qs.query_id = @query_id
+AND qs.is_forced_plan = 1;
+IF @plid IS NULL
+BEGIN
+PRINT ''There is no forced plan for query ID = ' + CONVERT(VARCHAR, @queryid) + ''';
+END
+ELSE
+BEGIN
+EXEC sys.sp_query_store_unforce_plan @query_id = @query_id, @plan_id = @plid;
+END
+';
+-- Add the USE statement to switch to the specified database
+SET @sql = 'USE [' + @databasename + ']; ' + @sql;
+-- Print the dynamic SQL for debugging purposes
+-- PRINT @sql;
+-- Execute the dynamic SQL
+EXEC sp_executesql @sql;
+ PRINT 'If the PlanID was unforced, the operation was successful. Otherwise, check the error message above.';
+
+END
+
+
+IF @x = '5' OR @x = 'getplanid' 
+BEGIN
+IF @procname IS NULL
+BEGIN
+PRINT 'Please supply the stored proc name!';
+END;
+IF @procname IS NOT NULL AND @blitzcache = 1
+EXEC admin..sp_BlitzCache @storedprocname = @procname
+ELSE
+BEGIN
+SET @sql =
+'EXEC admin.dbo.sp_QuickieStore
+@database_name = ''' + @databasename + ''',
+@procedure_name = ''' + @procname + ''''
+-- PRINT @sql
+EXEC sp_executesql @sql
+END
+END
+
+if @x = '51' or @x = 'planidbytext'
+begin
+set @SQL = 'use ' + @databasename + ';
+SELECT
+    qsq.query_id,
+    qsq.last_execution_time,
+    qsqt.query_sql_text,
+    AVG(qsrs.avg_duration) / 1000000 AS avg_execution_time_s
+    ,MAX(qsrs.max_duration) / 1000000 AS max_execution_time_s
+FROM
+    sys.query_store_query qsq
+    INNER JOIN sys.query_store_query_text qsqt ON qsq.query_text_id = qsqt.query_text_id
+    INNER JOIN sys.query_store_runtime_stats qsrs ON qsq.last_execution_time = qsrs.last_execution_time
+    Where qsqt.query_sql_text LIKE @text
+GROUP BY
+    qsq.query_id,
+    qsqt.query_sql_text,
+    qsq.last_execution_time
+ORDER BY
+    avg_execution_time_s DESC;'
+    --Print @SQL
+    Exec Sp_executesql @sql, N'@text nvarchar(max)', @text;
+  end
+  
+  IF @X = '7' OR @X = 'INDEXUSAGE'
+  BEGIN
+  IF @tablename IS NULL
+  BEGIN
+  PRINT 'PLEASE SUPPLY THE TABLE NAME!'
+  END
+  SET @SQL = '
+USE ' + QUOTENAME(@DatabaseName) + ';
+
+DECLARE @TableName NVARCHAR(128) = @TblName;
+
+SELECT  
+    t.name AS TableName,
+    i.name AS IndexName,
+    CAST(ps.used_page_count * 8.0 / 1024 / 1024 AS DECIMAL(10,2)) AS IndexSizeGB,
+    ISNULL(ius.user_seeks, 0) AS UserSeeks,
+    ISNULL(ius.user_scans, 0) AS UserScans,
+    ISNULL(ius.user_lookups, 0) AS UserLookups,
+    ISNULL(ius.user_updates, 0) AS UserUpdates,
+    p.rows AS TableRowCount,
+    t.create_date AS TableCreateDate,
+    t.modify_date AS TableModifyDate
+FROM 
+    sys.tables t
+INNER JOIN 
+    sys.indexes i ON t.object_id = i.object_id
+LEFT JOIN 
+    sys.dm_db_index_usage_stats ius 
+    ON i.object_id = ius.object_id AND i.index_id = ius.index_id 
+    AND ius.database_id = DB_ID()
+INNER JOIN 
+    sys.dm_db_partition_stats ps 
+    ON i.object_id = ps.object_id AND i.index_id = ps.index_id
+INNER JOIN 
+    sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+WHERE 
+    t.name = @TableName
+ORDER BY 
+    IndexSizeGB DESC;
+';
+
+-- Execute with sp_executesql
+EXEC sp_executesql @SQL,N'@TblName NVARCHAR(128)', @TblName = @TableName;
+END 
+-------------------------------------------------------------------------------
+
+IF (@X = '8' OR @X = 'ADDHINT') AND @REMOVEHINT = 0
+BEGIN
+IF @queryid IS NULL
+BEGIN 
+PRINT 'PLEASE SUPPLY QUERY_ID!'; END;
+IF @queryid IS NOT NULL AND @HINT IS NOT NULL AND @PROCNAME IS NOT NULL
+BEGIN 
+SET @SQL = 'USE ' + @DATABASENAME + ';
+EXEC SYS.SP_QUERY_STORE_SET_HINTS @QUERY_ID = ' + CONVERT(VARCHAR, @QUERYID) + ', @QUERY_HINTS = N''OPTION(' + @HINT + ')'''
+EXEC SP_EXECUTESQL @SQL
+INSERT INTO ADMIN.DBO.QUERYHINTS (QUERY_ID, APPLIEDHINT, REMOVEHINT, NOTE, QUERYORPROCNAME)
+VALUES(@queryid, 'EXEC SYS.SP_QUERYSTORE_SET_HINTS @QUERY_ID = ' + CONVERT(VARCHAR, @QUERYID) + ', @QUERY_HINTS = n''OPTION(' + @HINT + ')''',
+'EXEC SYS.SP_QUERYSTORE_SET_HINTS @QUERY_ID = ' + CONVERT(VARCHAR, @QUERYID), @HINT, @PROCNAME);
+Print @SQL
+END
+END
+/*
+create table admin.dbo.queryhints (id int identity(1,1), query_id int null, appliedhint nvarchar(250) null,
+removehint nvarchar(250) null, Note nvarchar(450) null, QueryorProcname nvarchar(150) null, Logdate datetime null)
+  
+Alter table admin.dbo.queryhints add constraint [df_queryhints_note] default (null) for [note]
+go
+Alter table admin.dbo.queryhints add default (getdate()) for logdate
+*/
+
+IF (@X = '8' OR @X = 'ADDHINT') AND @REMOVEHINT = 1
+BEGIN
+
+SET @SQL = 'USE ' + @DATABASENAME + ';
+EXEC sys.sp_query_store_clear_hints @QUERY_ID = ' + CONVERT(VARCHAR, @QUERYID)
+Print @SQL
+EXEC SP_EXECUTESQL @SQL
+DELETE FROM ADMIN.DBO.QUERYHINTS WHERE QUERY_ID = @QUERYID
+END
+-------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+IF  (@X = '91' OR @X = 'QSRECOMMENDATION') AND @QUERYID IS NOT NULL
+BEGIN
+SET @SQL = 'USE ' + @DATABASENAME + ';
+SELECT /*QSQT.QUERY_SQL_TEXT,*/ QSQ.QUERY_ID, OBJECT_NAME(QSQ.OBJECT_ID) AS PROCEDURE_NAME
+FROM SYS.QUERY_STORE_QUERY QSQ
+JOIN SYS.QUERY_STORE_QUERY_TEXT QSQT ON QSQ.QUERY_TEXT_ID = QSQT.QUERY_TEXT_ID
+WHERE QSQ.QUERY_ID = ' + CONVERT(VARCHAR, @queryId)
+--PRINT @SQL;
+EXEC SP_EXECUTESQL @SQL;
+END 
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+
+IF @X = '10' OR @X = 'CHECKPERMISSION'
+BEGIN 
+    SET @SQL = '
+    USE ' + QUOTENAME(@DATABASENAME) + ';
+
+    SELECT 
+        PR.NAME AS PrincipalName, 
+        PR.TYPE_DESC AS PrincipalType, 
+        PE.PERMISSION_NAME AS CurrentPermission,
+        PE.STATE_DESC AS PermissionState, 
+        CASE 
+            WHEN PE.PERMISSION_NAME = ''EXECUTE'' 
+                THEN ''GRANT EXECUTE ON OBJECT::'' + QUOTENAME(O.name) + '' TO ['' + PR.name + ''];''
+            ELSE ''NEWPERMISSION''  
+        END AS PermissionStatement
+    FROM sys.database_permissions AS PE
+    JOIN sys.objects AS O ON PE.major_id = O.object_id
+    JOIN sys.database_principals AS PR ON PE.grantee_principal_id = PR.principal_id
+    WHERE O.name = ''' + @procname + ''';';
+    PRINT @SQL
+
+    EXEC sp_executesql @SQL;
+END
+ 
+-------------------------------------------------------------------------------
+
+
+
+
+
+
+
+

@@ -1,24 +1,23 @@
-EXEC sp_Daily CPU, @uptime = 500, @both = 2;
+EXEC sp_Daily CPU, @cputime = 500, @both = 2;
 --EXEC sp_Daily 1, @blocking = 1 --Check CPU, BLOCKING . @both = 0 for both, 1 for first one, 2 for second
 
 EXEC admin.sp_blockingdetailtracktransactions;
 
 EXEC admin.sp_monitorregressedplans 0 --0 all regressed, 1 mild regressed, 2 too regressed
 
-EXEC sp_Daily recompile, @procname = 'usp_SpecimenResults_Find_Results' --RECOMPILE stored procs
+EXEC sp_Daily recompile, @procname = 'procname' --RECOMPILE stored procs
 
 EXEC sp_Daily helptext, @procname = 'Udf_Get_Physical_StatusId' --GET TEXT text of objects
 
-EXEC sp_Daily 31, @procname = 'usp_MyEscreen_V3_Sched_SelEvents_ByApplicant' --Get parameters from profiler
+EXEC sp_Daily 31, @procname = 'procname' --Get parameters from profiler
 
-EXEC sp_Daily 4, @planid = 24855937 -- BEWARE REMOVING
+EXEC sp_Daily 4, @planid = 24855937 -- BEWARE REMOVING PLANID Planid targets a specific plan within a queryid;
 
-EXEC sp_Daily 4, @queryid = 57844497 -- BEWARE REMOVING
+EXEC sp_Daily 4, @queryid = 57844497 -- BEWARE REMOVING QUERYID queryid applies to all planids under it
 
-EXEC sp_Daily unforceplanid, @queryid = 53933316
--- BEWARE REMOVING — REMOVE: Planid targets a specific plan within a queryid; queryid applies to all planids under it
-
--- (Get planid and details using quickie or Blitz tool; @blitzcache = 1 triggers Blitz, otherwise it uses quickiestore)
+EXEC sp_Daily unforceplanid, @queryid = 53933316 
+ 
+EXEC sp_Daily 5, @procname = 'procname' -- (Get planid and details using quickie or Blitz tool; @blitzcache = 1 triggers Blitz, otherwise it uses quickiestore)
 
 EXEC sp_Daily 51, @text = '%WHERE clientid = @ClientIdParameter%' 
 -- Extract planid from query text, especially useful for dynamic stored procedures
@@ -26,11 +25,11 @@ EXEC sp_Daily 51, @text = '%WHERE clientid = @ClientIdParameter%'
 EXEC sp_Daily 61, @HOUR = 2 
 -- Find timeout or aborted queries in the specified hour
 
-EXEC sp_Daily 7, @tablename = 'specimen' 
+EXEC sp_Daily 7, @tablename = 'post' 
 -- Analyze index usage for the specified table
 
 EXEC sp_Daily 8, @queryid = 38285587, @hint = 'Loop Join', 
-    @procname = 'usp_ePhysicals_Is_ePhysicals_Eligible', @removehint = 0 
+    @procname = 'usp_get_status', @removehint = 0 
 -- Apply query hint (e.g., Loop Join); set @removehint = 1 to remove the hint
 
 EXEC sp_Daily 9/*1*/, @queryid = 5566; 
@@ -40,7 +39,7 @@ EXEC sp_Daily 91, @queryid = 5343
 EXEC sp_Daily 10, @procname = 'procname' 
 -- Check permission on specified stored procedure
 
-EXEC sp_scriptoutindex @indexname = 'op_id', @tablename = 'collections', @dbname = 'escreen'
+EXEC sp_scriptoutindex @indexname = 'op_id', @tablename = 'posts', @dbname = 'cc'
 
 USE cc;
 DBCC inputbuffer (528)
